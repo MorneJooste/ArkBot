@@ -22,6 +22,8 @@ namespace ArkBot.Data
         }
 
         public string[][] Aliases { get; set; }
+        
+        private readonly Dictionary<string,string[]> _aliasesByClassName = new Dictionary<string, string[]>();
 
         /// <summary>
         /// Gets an array of alternative species names
@@ -35,6 +37,23 @@ namespace ArkBot.Data
             return aliases;
         }
 
+        public string[] GetAliasesByClassName(string className)
+        {
+            if (className == null)
+            {
+                return null;
+            }
+
+            if (!_aliasesByClassName.TryGetValue(className, out var aliases))
+            {
+                // fall back to using obelisk data
+                var data = ArkSpeciesStats.Instance.Data?.GetSpecies(new[] { className });
+                if (data != null) aliases = new[] { data.Name, className };
+            }
+            
+            return aliases ?? default;
+        }
+
         private void Load()
         {
             try
@@ -44,7 +63,19 @@ namespace ArkBot.Data
                     using (var reader = File.OpenText(_filepath))
                     {
                         var data = JsonConvert.DeserializeAnonymousType(reader.ReadToEnd(), new { Aliases = new string[][] { } });
-                        if (data != null) Aliases = data.Aliases;
+                        if (data != null)
+                        {
+                            Aliases = data.Aliases;
+
+                            foreach (var aliasRecord in Aliases)
+                            {
+                                if (aliasRecord.Length >= 2)
+                                {
+                                    var className = aliasRecord[1];
+                                    _aliasesByClassName[className] = aliasRecord;
+                                }
+                            }
+                        }
                     }
                 }
             }

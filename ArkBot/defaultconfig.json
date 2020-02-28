@@ -4,6 +4,13 @@
   "appUrl": "",
   "tempFileOutputDirPath": "",
   "steamApiKey": "",
+  "webApp": {
+    "defaultTheme": "Dark",
+    "topMenu":  false,
+    "tribeLogLimit": 100,
+    "tribeLogColors": false,
+    "customCssFilePath":  null
+  },
   "discord": {
     "discordBotEnabled": true,
     "botToken": "",
@@ -59,6 +66,7 @@
       "players": [ "guest" ],
       "tribes": [ "guest" ],
       "wildcreatures": [ "admin" ],
+      "wildcreatures-coords": [ "admin" ],
       "wildcreatures-basestats": [ "admin" ],
       "wildcreatures-ids": [ "admin" ],
       "wildcreatures-statistics": [ "admin" ]
@@ -79,7 +87,7 @@
     "admin-server": {
       "players": [ "admin" ],
       "tribes": [ "admin" ],
-      "structures": [ "admin" ],	  
+      "structures": [ "admin" ],
       "fertilized-eggs": [ "disabled" ],
       "structures-rcon": [ "disabled" ]
     }
@@ -119,6 +127,8 @@
       "key": "server1",
       "clusterKey": "cluster1",
       "saveFilePath": "",
+      "modIds": [
+      ],
       "displayAddress": "",
       "ip": "127.0.0.1",
       "queryPort": 27015,
@@ -138,6 +148,8 @@
       "key": "server2",
       "clusterKey": "cluster1",
       "saveFilePath": "",
+      "modIds": [
+      ],
       "displayAddress": "",
       "ip": "127.0.0.1",
       "queryPort": 27016,

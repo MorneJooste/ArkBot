@@ -53,6 +53,8 @@ using Nito.AsyncEx;
 using Markdig;
 using PropertyChanged;
 using ArkBot.Configuration.Model;
+using System.Globalization;
+using ArkSavegameToolkitNet;
 
 namespace ArkBot.ViewModel
 {
@@ -61,6 +63,7 @@ namespace ArkBot.ViewModel
         public struct Constants
         {
             public const string ConfigFilePath = @"config.json";
+            public const string ArkConfigFilePath = @"ark.json";
             public const string DefaultConfigFilePath = @"defaultconfig.json";
             public const string LayoutFilePath = @".\Layout.config";
         }
@@ -88,6 +91,9 @@ namespace ArkBot.ViewModel
 
         public ICommand ExitCommand => _exitCommand ?? (_exitCommand = new RelayCommand(parameter => OnExit(parameter), parameter => CanExit(parameter)));
         private RelayCommand _exitCommand;
+
+        public ICommand OpenWebAppCommand => _openWebAppCommand ?? (_openWebAppCommand = new RelayCommand(parameter => OnOpenWebApp(parameter), parameter => CanOpenWebApp(parameter)));
+        private RelayCommand _openWebAppCommand;
 
         public ICommand ReloadPartialConfig => _reloadPartialConfig ?? (_reloadPartialConfig = new RelayCommand(parameter => OnReloadPartialConfig(parameter), parameter => CanReloadPartialConfig(parameter)));
         private RelayCommand _reloadPartialConfig;
@@ -209,6 +215,16 @@ namespace ArkBot.ViewModel
             Application.Current.MainWindow?.Close();
         }
 
+        private bool CanOpenWebApp(object parameter)
+        {
+            return !string.IsNullOrEmpty(_config?.AppUrl);
+        }
+
+        private void OnOpenWebApp(object parameter)
+        {
+            Process.Start(_config.AppUrl);
+        }
+
         private bool CanReloadPartialConfig(object parameter)
         {
             return true;
@@ -259,18 +275,49 @@ namespace ArkBot.ViewModel
                 return;
             }
 
+            //ArkToolkitDomain.Initialize();
+            //File.WriteAllText(@"ark.json", JsonConvert.SerializeObject(ArkSavegameToolkitNet.ArkToolkitSettings.Instance, Formatting.Indented));
+
+            var arkConfigCustom = false;
+            if (File.Exists(Constants.ArkConfigFilePath))
+            {
+                try
+                {
+                    // use custom settings from ark.json
+                    ArkToolkitSettings.Instance.Setup(JsonConvert.DeserializeObject<ArkToolkitSettings>(File.ReadAllText(Constants.ArkConfigFilePath)));
+                    arkConfigCustom = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.AddLog($@"Error loading 'ark.config'. Using default config. (""{ex.Message}"")");
+                    Logging.LogException("Error loading 'ark.config'. Using default config.", ex, this.GetType());
+                }
+            }
+
+            if (!arkConfigCustom)
+            {
+                // initialize default settings
+                ArkToolkitDomain.Initialize();
+            }
+
             _config = null;
-            string exceptionMessage = null;
+            string validationMessage = null;
+            string errorMessage = null;
             if (File.Exists(Constants.ConfigFilePath))
             {
                 try
                 {
                     _config = JsonConvert.DeserializeObject<Config>(File.ReadAllText(Constants.ConfigFilePath));
-                    if (_config.Discord == null) _config.Discord = new DiscordConfigSection();
+                    if (_config != null)
+                    {
+                        if (_config.Discord == null) _config.Discord = new DiscordConfigSection();
+                        _config.SetupDefaults();
+                    }
+                    else errorMessage = "Config.json is empty. Please delete it and restart the application.";
                 }
                 catch (Exception ex)
                 {
-                    exceptionMessage = ex.Message;
+                    validationMessage = ex.Message;
                 }
             }
             var hasValidConfig = _config != null;
@@ -293,11 +340,13 @@ namespace ArkBot.ViewModel
 
                 WriteAndWaitForKey(
                     $@"The file config.json is empty or contains errors. Skipping automatic startup...",
-                    exceptionMessage);
+                    validationMessage);
             }
 
             Configuration.Config = _config as Config;
             About.HasValidConfig = hasValidConfig;
+            About.ValidationError = validationMessage;
+            About.ConfigError = errorMessage;
 
             if (!hasValidConfig)
             {
@@ -418,6 +467,7 @@ namespace ArkBot.ViewModel
             builder.RegisterType<ArkServerService>().As<IArkServerService>().SingleInstance();
             builder.RegisterType<SavegameBackupService>().As<ISavegameBackupService>().SingleInstance();
             builder.RegisterType<PlayerLastActiveService>().As<IPlayerLastActiveService>().SingleInstance();
+            builder.RegisterType<LogCleanupService>().As<ILogCleanupService>().SingleInstance();
 
             //register vote handlers
             builder.RegisterType<BanVoteHandler>().As<IVoteHandler<BanVote>>();
@@ -482,6 +532,7 @@ namespace ArkBot.ViewModel
             {
                 var playerLastActiveService = Container.Resolve<IPlayerLastActiveService>();
                 var backupService = Container.Resolve<ISavegameBackupService>();
+                var logCleanupService = Container.Resolve<ILogCleanupService>();
                 foreach (var server in _config.Servers)
                 {
                     var clusterContext = _contextManager.GetCluster(server.ClusterKey);
@@ -530,8 +581,16 @@ namespace ArkBot.ViewModel
             }
             else Console.AddLog("Discord bot is disabled.");
 
+            //load the server multipliers data
+            await ArkServerMultipliers.Instance.LoadOrUpdate();
+
+            var modIds = _config.Servers?.SelectMany(x => x.ModIds).Distinct().ToArray() ?? new int[] { };
+
             //load the species stats data
-            await ArkSpeciesStats.Instance.LoadOrUpdate();
+            await ArkSpeciesStats.Instance.LoadOrUpdate(modIds);
+
+            //load the items data
+            await ArkItems.Instance.LoadOrUpdate(modIds);
 
             //ssl
             if (_config.Ssl?.Enabled == true)
@@ -566,68 +625,83 @@ namespace ArkBot.ViewModel
                 {
                     var success = false;
                     Console.AddLog(@"SSL Certificate request issued...");
+                    AcmeContext acme = null;
                     try
                     {
-                        using (var client = new AcmeClient(WellKnownServers.LetsEncrypt))
+                        var pathAccountKey = $"{_config.Ssl.Name}-account.pem";
+                        //var pathPrivateKey = $"{_config.Ssl.Name}-privatekey.pem";
+                        if (File.Exists(pathAccountKey))
                         {
-                            var account = await client.NewRegistraton($"mailto:{_config.Ssl.Email}");
-                            account.Data.Agreement = account.GetTermsOfServiceUri();
-                            account = await client.UpdateRegistration(account);
+                            var accountKey = KeyFactory.FromPem(File.ReadAllText(pathAccountKey));
 
-                            var authz = await client.NewAuthorization(new AuthorizationIdentifier
+                            acme = new AcmeContext(WellKnownServers.LetsEncryptV2, accountKey);
+                            var account = await acme.Account();
+                        }
+                        else
+                        {
+                            acme = new AcmeContext(WellKnownServers.LetsEncryptV2);
+                            var account = await acme.NewAccount(_config.Ssl.Email, true);
+
+                            var pemKey = acme.AccountKey.ToPem();
+                            File.WriteAllText(pathAccountKey, pemKey);
+                        }
+
+                        var order = await acme.NewOrder(_config.Ssl.Domains);
+
+                        var authz = (await order.Authorizations()).First();
+                        var httpChallenge = await authz.Http();
+                        var keyAuthz = httpChallenge.KeyAuthz;
+                        using (var webapp = Microsoft.Owin.Hosting.WebApp.Start(_config.Ssl.ChallengeListenPrefix, (appBuilder) =>
+                        {
+                            var challengePath = new PathString($"/.well-known/acme-challenge/{httpChallenge.Token}");
+                            appBuilder.Use(new Func<AppFunc, AppFunc>((next) =>
                             {
-                                Type = AuthorizationIdentifierTypes.Dns,
-                                Value = _config.Ssl.Domains.First()
-                            });
-
-                            var httpChallengeInfo = authz.Data.Challenges.Where(c => c.Type == ChallengeTypes.Http01).First();
-                            var keyAuthString = client.ComputeKeyAuthorization(httpChallengeInfo);
-
-                            using (var webapp = Microsoft.Owin.Hosting.WebApp.Start(_config.Ssl.ChallengeListenPrefix, (appBuilder) =>
-                            {
-                                var challengePath = new PathString("/.well-known/acme-challenge/");
-                                appBuilder.Use(new Func<AppFunc, AppFunc>((next) =>
+                                AppFunc appFunc = async environment =>
                                 {
-                                    AppFunc appFunc = async environment =>
-                                    {
-                                        IOwinContext context = new OwinContext(environment);
-                                        if (!context.Request.Path.Equals(challengePath)) await next.Invoke(environment);
+                                    IOwinContext context = new OwinContext(environment);
+                                    if (!context.Request.Path.Equals(challengePath)) await next.Invoke(environment);
 
-                                        context.Response.StatusCode = (int)System.Net.HttpStatusCode.OK;
-                                        context.Response.ContentType = "application/text";
-                                        await context.Response.WriteAsync(keyAuthString);
-                                    };
-                                    return appFunc;
-                                }));
-                            }))
+                                    context.Response.StatusCode = (int)System.Net.HttpStatusCode.OK;
+                                    context.Response.ContentType = "application/text";
+                                    await context.Response.WriteAsync(keyAuthz);
+                                };
+                                return appFunc;
+                            }));
+                        }))
+                        {
+                            var result = await httpChallenge.Validate();
+                            while (result.Status == Certes.Acme.Resource.ChallengeStatus.Pending || result.Status == Certes.Acme.Resource.ChallengeStatus.Processing)
                             {
-                                var httpChallenge = await client.CompleteChallenge(httpChallengeInfo);
+                                await Task.Delay(500);
+                                result = await httpChallenge.Resource();
+                            }
 
-                                authz = await client.GetAuthorization(httpChallenge.Location);
-                                while (authz.Data.Status == EntityStatus.Pending)
+                            if (result.Status == Certes.Acme.Resource.ChallengeStatus.Valid)
+                            {
+                                var privateKey = KeyFactory.NewKey(KeyAlgorithm.ES256);
+                                var cert = await order.Generate(new CsrInfo
                                 {
-                                    await Task.Delay(500);
-                                    authz = await client.GetAuthorization(httpChallenge.Location);
+                                    CountryName = new RegionInfo(CultureInfo.CurrentCulture.Name).TwoLetterISORegionName,
+                                    Locality = "Web",
+                                    Organization = "ARK Bot",
+                                }, privateKey);
+
+                                if (revoke)
+                                {
+                                    //await acme.RevokeCertificate(
+                                    //    File.ReadAllBytes(path), 
+                                    //    Certes.Acme.Resource.RevocationReason.Superseded, 
+                                    //    KeyFactory.FromPem(File.ReadAllText(pathPrivateKey)));
+
+                                    if (File.Exists(path)) File.Delete(path);
                                 }
 
-                                if (authz.Data.Status == EntityStatus.Valid)
-                                {
-                                    if (revoke)
-                                    {
-                                        //await client.RevokeCertificate(path); //todo: how to revoke a cert when we do not have the AcmeCertificate-object?
-                                        if (File.Exists(path)) File.Delete(path);
-                                    }
+                                //File.WriteAllText(pathPrivateKey, privateKey.ToPem());
+                                var pfxBuilder = cert.ToPfx(privateKey);
+                                var pfx = pfxBuilder.Build(_config.Ssl.Name, _config.Ssl.Password);
+                                File.WriteAllBytes(path, pfx);
 
-                                    var csr = new CertificationRequestBuilder();
-                                    foreach (var domain in _config.Ssl.Domains) csr.AddName("CN", domain);
-                                    var cert = await client.NewCertificate(csr);
-
-                                    var pfxBuilder = cert.ToPfx();
-                                    var pfx = pfxBuilder.Build(_config.Ssl.Name, _config.Ssl.Password);
-                                    File.WriteAllBytes(path, pfx);
-
-                                    success = true;
-                                }
+                                success = true;
                             }
                         }
 
@@ -748,7 +822,7 @@ namespace ArkBot.ViewModel
                 sb.AppendLine($@"Expected value: {ValidationHelper.GetDescriptionForMember(_config, nameof(_config.BotName))}");
                 sb.AppendLine();
             }
-            if (string.IsNullOrWhiteSpace(_config.TempFileOutputDirPath) || !Directory.Exists(_config.TempFileOutputDirPath))
+            if (string.IsNullOrWhiteSpace(_config.TempFileOutputDirPath) || !Directory.Exists(Environment.ExpandEnvironmentVariables(_config.TempFileOutputDirPath)))
             {
                 sb.AppendLine($@"Error: {nameof(_config.TempFileOutputDirPath)} is not a valid directory path.");
                 sb.AppendLine($@"Expected value: {ValidationHelper.GetDescriptionForMember(_config, nameof(_config.TempFileOutputDirPath))}");

@@ -20,8 +20,10 @@ import { DemoHttpService } from './demo.http.service';
 import { MessageService } from './message.service';
 import { DataService } from './data.service';
 import { DataServiceResolver } from './data-resolver.service';
+import { HotkeysService } from './hotkeys.service';
 import { AccessControlRouteGuardService } from './access-control-route-guard.service';
 import { SanitizeStylePipe } from './sanitize-style.pipe';
+import { SanitizeHtmlPipe } from './sanitize-html.pipe';
 import { ClickOutsideDirective } from './clickOutside.directive';
 import { ServerListMenuComponent } from './server-list-menu/server-list-menu.component';
 import { MenuComponent } from './menu/menu.component';
@@ -34,6 +36,7 @@ import { ConfirmButtonComponent } from './confirm-button/confirm-button.componen
 import { AccessDeniedComponent } from './access-denied/access-denied.component';
 import { ConnectionErrorComponent } from './connection-error/connection-error.component';
 import { DeveloperComponent } from './developer/developer.component';
+import { CustomThemeComponent } from './custom-theme/custom-theme.component';
 
 import { DataTableModule } from './data-table/data-table.module';
 import { environment } from '../environments/environment';
@@ -131,6 +134,7 @@ const appRoutes: Routes = [
     ServerListComponent,
     ArkMapComponent,
     SanitizeStylePipe,
+    SanitizeHtmlPipe,
     ClickOutsideDirective,
     PlayerComponent,
     PlayerMenuComponent,
@@ -146,7 +150,8 @@ const appRoutes: Routes = [
     ConfirmButtonComponent,
     AccessDeniedComponent,
     ConnectionErrorComponent,
-    DeveloperComponent
+    DeveloperComponent,
+    CustomThemeComponent
   ],
   imports: [
     RouterModule.forRoot(appRoutes),
@@ -163,6 +168,7 @@ const appRoutes: Routes = [
     MessageService, 
     DataService,
     DataServiceResolver,
+    HotkeysService,
     AccessControlRouteGuardService,
     { provide: LOCALE_ID, useValue: "en-US" }],
   bootstrap: [AppComponent]

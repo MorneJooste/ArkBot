@@ -131,7 +131,7 @@ namespace ArkBot.Discord
 
                     //check if command is allowed in this channel
                     if(!(context.Channel is ISocketPrivateChannel) 
-                        && _config.Discord.EnabledChannels?.Length > 0 
+                        && _config.Discord.EnabledChannels?.Count > 0 
                         && !_config.Discord.EnabledChannels.Contains(context.Channel.Name, StringComparer.OrdinalIgnoreCase))
                     {
                         return;
@@ -389,7 +389,7 @@ namespace ArkBot.Discord
 
         public async Task Initialize(CancellationToken token, bool skipExtract = false)
         {
-            await _commands.AddModulesAsync(Assembly.GetEntryAssembly());
+            await _commands.AddModulesAsync(Assembly.GetEntryAssembly(),_serviceProvider);
 
             //await _context.Initialize(token, skipExtract);
         }

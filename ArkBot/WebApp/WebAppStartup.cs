@@ -82,7 +82,7 @@ namespace ArkBot.WebApp
             return System.IO.Path.GetFullPath(@"WebApp");
         }
     }
-
+  
     public class SinglePageApplicationModule : NancyModule
     {
         private IConfig _config;
@@ -91,21 +91,45 @@ namespace ArkBot.WebApp
         {
             _config = config;
 
-            Get[""] = _ =>
+            var getIndex = new Func<Response>(() =>
             {
-                return Response.AsFile(@"index.html");
-            };
+                var filePath = @"WebApp\index.html";
+                if (!File.Exists(filePath)) return HttpStatusCode.NotFound;
+
+                var contents = File.ReadAllText(filePath);
+                var portStr = new Regex(@":(?<port>\d+)(?:/|$)").Match(_config.WebApiListenPrefix)?.Groups["port"].Value;
+                var success = int.TryParse(portStr, out var port);
+                var obj = new
+                {
+                    webapi = new
+                    {
+                        port = success ? port : (int?)null
+                    },
+                    webapp = new
+                    {
+                        defaultTheme = _config.WebApp.DefaultTheme.ToString(),
+                        topMenu = _config.WebApp.TopMenu,
+                        useCustomCssFile = !string.IsNullOrEmpty(_config.WebApp.CustomCssFilePath)
+                    }
+                };
+                var json = JsonConvert.SerializeObject(obj, Formatting.None);
+                var js = $"var config = {json};";
+                contents = contents.Replace("/*[[config]]*/", js);
+
+                return Response.AsText(contents, "text/html; charset=utf-8");
+            });
+
+            Get[""] = _ => getIndex();
+
             Get[@"^(?<path>.*)$"] = parameters =>
             {
-                if (parameters["path"].Value.Equals("config.js"))
-                {
-                    var portStr = new Regex(@":(?<port>\d+)(?:/|$)").Match(_config.WebApiListenPrefix)?.Groups["port"].Value;
-                    var success = int.TryParse(portStr, out var port);
-                    var js = $"var config = {JsonConvert.SerializeObject(new { webapi = new { port = success ? port : (int?)null } }, Formatting.None)};";
-                    return Response.AsText(js, "application/javascript");
-                }
-                if (File.Exists(Path.Combine(Response.RootPath, parameters["path"].Value))) return Response.AsFile((string)parameters["path"].Value);
-                return Response.AsFile(@"index.html");
+              if (parameters["path"].Value.Equals("custom.css") && !string.IsNullOrEmpty(_config.WebApp.CustomCssFilePath) && File.Exists(_config.WebApp.CustomCssFilePath))
+              {
+                return Response.AsText(File.ReadAllText(_config.WebApp.CustomCssFilePath), "text/css");
+              }
+
+              if (File.Exists(Path.Combine(Response.RootPath, parameters["path"].Value))) return Response.AsFile((string)parameters["path"].Value);
+                return getIndex();
             };
         }
     }

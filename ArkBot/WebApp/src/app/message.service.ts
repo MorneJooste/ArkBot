@@ -13,11 +13,11 @@ export class MessageService {
     private connection: any;
     private proxy: any;
 
-    public serverUpdated$: EventEmitter<string>;
+    public serverUpdated$: EventEmitter<string> = new EventEmitter();
 
-    constructor(private zone:NgZone) {
-        this.serverUpdated$ = new EventEmitter();
+    constructor(private zone:NgZone) {  }
 
+    connect(): void {
         this.connection = $.hubConnection(this.getSignalRBaseUrl());
         this.proxy = this.connection.createHubProxy('ServerUpdateHub');
         
@@ -36,6 +36,6 @@ export class MessageService {
         return environment.signalrBaseUrl
             .replace(/\<protocol\>/gi, window.location.protocol)
             .replace(/\<hostname\>/gi, window.location.hostname)
-            .replace(/\<webapi_port\>/gi, config != undefined ? config.webapi.port : "");
+            .replace(/\<webapi_port\>/gi, typeof config !== 'undefined' ? config.webapi.port : "");
     }
 }

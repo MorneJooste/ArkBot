@@ -1,11 +1,6 @@
-﻿using ArkBot.Ark;
-using ArkBot.Configuration.Model;
-using ArkBot.Data;
-using ArkBot.ViewModel;
-using ArkBot.WebApi.Model;
-using ArkSavegameToolkitNet.Domain;
+﻿using ArkBot.Configuration.Model;
+using ArkSavegameToolkitNet;
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -13,10 +8,6 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Resources;
-using System.Text;
-using System.Threading.Tasks;
-using System.Web.Http;
 
 namespace ArkBot.WebApi.Controllers
 {
@@ -38,7 +29,10 @@ namespace ArkBot.WebApi.Controllers
             var ms = new MemoryStream();
             try
             {
-                bmp = MapResources.ResourceManager.GetObject($"topo_map_{id}") as Bitmap;
+                if (!ArkToolkitSettings.Instance.Maps.TryGetValue(id, out var def)) return notfound;
+
+                bmp = def.Images?.FirstOrDefault()?.ImageProvider?.Invoke();
+
                 if (bmp == null) return notfound;
 
                 var jpegEncoder = ImageCodecInfo.GetImageEncoders().FirstOrDefault(x => x.FormatID == ImageFormat.Jpeg.Guid);
@@ -48,8 +42,7 @@ namespace ArkBot.WebApi.Controllers
                 bmp.Save(ms, jpegEncoder, encParams);
                 ms.Seek(0, SeekOrigin.Begin);
             }
-            catch (MissingManifestResourceException) { return notfound; }
-            catch (MissingSatelliteAssemblyException) { return notfound; }
+            catch (Exception) { return notfound; }
             finally
             {
                 bmp?.Dispose();
