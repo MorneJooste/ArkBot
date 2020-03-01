@@ -296,15 +296,6 @@ namespace ArkBot.Configuration.Model
         [PropertyOrder(1)]
         public bool AnonymizeWebApiData { get; set; }
 
-
-        [JsonProperty(PropertyName = "hideUiOnStartup")]
-        [Display(Name = "Hide Ui On Startup", Description = "Hides the user interface on program startup")]
-        [DefaultValue(false)]
-        [ConfigurationHelp(remarks: new[] { "Allows hiding the user interface on program startup. The program can be accessed from the system tray icon." })]
-        [Category(ConfigurationCategory.Optional)]
-        [PropertyOrder(14)]
-        public bool HideUiOnStartup { get; set; }
-
         //[JsonProperty(PropertyName = "test")]
         //[Display(Name = "Test", Description = "Test")]
         //[Category(ConfigurationCategory.Debug)]
